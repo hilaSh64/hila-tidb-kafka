@@ -1,0 +1,14 @@
+{
+  "name": "cdc-service",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "cdc.js",
+  "scripts": {
+    "start": "node cdc.js"
+  },
+  "dependencies": {
+    "mysql2": "^3.6.5",
+    "kafkajs": "^2.2.4"
+  }
+}
+

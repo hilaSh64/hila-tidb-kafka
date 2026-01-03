@@ -1,0 +1,119 @@
+services:
+  pd:
+    image: pingcap/pd:latest
+    container_name: pd
+    ports:
+      - "2379:2379"
+    command:
+      - --name=pd
+      - --client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://pd:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --advertise-peer-urls=http://pd:2380
+      - --initial-cluster=pd=http://pd:2380
+    restart: unless-stopped
+
+  db:
+    image: pingcap/tidb:latest
+    container_name: tidb
+    ports:
+      - "4000:4000"
+    environment:
+      - TIDB_PORT=4000
+    depends_on:
+      - pd
+    restart: unless-stopped
+
+  backend:
+    build:
+      dockerfile: app/Dockerfile
+    container_name: backend
+    ports:
+      - "3001:3001"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=4000
+      - DB_USER=root
+      - DB_PASSWORD=
+      - DB_NAME=test
+      - PORT=3001
+    depends_on:
+      - db
+    command: ["sh", "-c", "sleep 10 && npm run init-db && npm start"]
+    restart: unless-stopped
+
+  frontend:
+    build:
+      dockerfile: app/frontend/Dockerfile
+    container_name: frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_INTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    restart: unless-stopped
+
+  ticdc:
+    image: pingcap/ticdc:latest
+    container_name: ticdc
+    depends_on:
+      - pd
+      - db
+      - kafka
+    entrypoint: ["/cdc"]
+    command:
+      - "server"
+      - "--pd=http://pd:2379"
+      - "--addr=0.0.0.0:8300"
+      - "--advertise-addr=ticdc:8300"
+    ports:
+      - "8300:8300"
+    restart: unless-stopped
+
+  ticdc-init:
+    image: pingcap/ticdc:latest
+    container_name: ticdc-init
+    depends_on:
+      - pd
+      - ticdc
+      - kafka
+    entrypoint: ["/cdc"]
+    command:
+      - "cli"
+      - "changefeed"
+      - "create"
+      - "--pd=http://pd:2379"
+      - "--sink-uri=kafka://kafka:9094/tidb-changes?protocol=canal-json"
+      - "--changefeed-id=db-changes"
+    restart: "no"
+
+  kafka-consumer:
+    build:
+      dockerfile: app/kafka-consumer/Dockerfile
+    container_name: kafka-consumer
+    depends_on:
+      - kafka
+      - ticdc
+    environment:
+      KAFKA_BROKERS: kafka:9094
+      KAFKA_TOPIC: tidb-changes
+    restart: unless-stopped

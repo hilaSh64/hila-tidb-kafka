@@ -1,0 +1,23 @@
+{
+  "name": "tidb-app",
+  "version": "1.0.0",
+  "description": "Simple website with Node.js backend and HTML/JS frontend connected to TiDB",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "frontend": "node frontend/frontend-server.js",
+    "init-db": "node scripts/init-db.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "mysql2": "^3.6.5",
+    "log4js": "^6.9.1"
+  },
+  "devDependencies": {}
+}
