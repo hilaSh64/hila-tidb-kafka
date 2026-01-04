@@ -13,15 +13,31 @@ services:
       - --initial-cluster=pd=http://pd:2380
     restart: unless-stopped
 
+  tikv:
+    image: pingcap/tikv:latest
+    container_name: tikv
+    ports:
+      - "20160:20160"
+    command:
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv:20160
+      - --pd=pd:2379
+      - --data-dir=/var/lib/tikv
+    depends_on:
+      - pd
+    restart: unless-stopped
+
   db:
     image: pingcap/tidb:latest
     container_name: tidb
     ports:
       - "4000:4000"
-    environment:
-      - TIDB_PORT=4000
+    command:
+      - --store=tikv
+      - --path=pd:2379
     depends_on:
       - pd
+      - tikv
     restart: unless-stopped
 
   backend:
@@ -79,32 +95,19 @@ services:
       - pd
       - db
       - kafka
-    entrypoint: ["/cdc"]
-    command:
-      - "server"
-      - "--pd=http://pd:2379"
-      - "--addr=0.0.0.0:8300"
-      - "--advertise-addr=ticdc:8300"
+    command: >
+      sh -c "
+        echo 'Starting TiCDC server...' &&
+        /cdc server --pd=http://pd:2379 --addr=0.0.0.0:8300 --advertise-addr=ticdc:8300 &
+        sleep 30 &&
+        echo 'Creating changefeed...' &&
+        /cdc cli changefeed create --pd=http://pd:2379 --sink-uri='kafka://kafka:9094/tidb-changes?protocol=canal-json' --changefeed-id=db-changes &&
+        echo 'Changefeed created successfully!' &&
+        wait
+      "
     ports:
       - "8300:8300"
     restart: unless-stopped
-
-  ticdc-init:
-    image: pingcap/ticdc:latest
-    container_name: ticdc-init
-    depends_on:
-      - pd
-      - ticdc
-      - kafka
-    entrypoint: ["/cdc"]
-    command:
-      - "cli"
-      - "changefeed"
-      - "create"
-      - "--pd=http://pd:2379"
-      - "--sink-uri=kafka://kafka:9094/tidb-changes?protocol=canal-json"
-      - "--changefeed-id=db-changes"
-    restart: "no"
 
   kafka-consumer:
     build:
